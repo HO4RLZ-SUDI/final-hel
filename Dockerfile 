@@ -1,0 +1,21 @@
+# ใช้ Python 3.11 (เสถียรกว่าสำหรับการรันบน Server)
+FROM python:3.11-slim
+
+# ติดตั้ง System Dependencies สำหรับ OpenCV
+RUN apt-get update && apt-get install -y \
+    libgl1-mesa-glx \
+    libglib2.0-0 \
+    && rm -rf /var/lib/apt/lists/*
+
+# ตั้งค่า Working Directory
+WORKDIR /app
+
+# คัดลอกไฟล์ requirements.txt และติดตั้ง
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# คัดลอกโค้ดทั้งหมด
+COPY . .
+
+# สั่งรันแอปพลิเคชัน
+CMD ["python", "app.py"]

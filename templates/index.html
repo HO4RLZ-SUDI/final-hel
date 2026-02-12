@@ -1,74 +1,149 @@
 <!DOCTYPE html>
-<html>
+<html lang="th">
 <head>
-    <title>CyberGuard PRO</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Helmet AI System</title>
+    <!-- CSS จากที่คุณให้มา -->
     <link rel="stylesheet" href="/static/css/style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;600&display=swap" rel="stylesheet">
+    
+    <!-- AI Scripts -->
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@latest/dist/teachablemachine-image.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/blazeface"></script>
 </head>
 <body>
-    <div class="hud-title">>> CYBERGUARD_OS // BIOMETRIC_MONITOR</div>
-    
-    <div class="main-layout">
-        <div id="video-wrapper">
-            <div id="webcam-container"></div>
-            <canvas id="overlay"></canvas>
+    <header class="navbar">
+        <div class="container">
+            <h1 class="logo">Helmet<span>AI</span></h1>
+            <nav class="nav-links">
+                <a href="#" onclick="showPage('live')" id="nav-live" class="active">Live</a>
+                <a href="#" onclick="showPage('guide')" id="nav-guide">คู่มือ</a>
+                <a href="#" onclick="showPage('dashboard')" id="nav-dashboard">Dashboard</a>
+            </nav>
+        </div>
+    </header>
+
+    <main class="container">
+        <!-- หน้า LIVE -->
+        <div id="page-live">
+            <section class="main-card">
+                <div class="status-badge" id="live-badge">● LIVE</div>
+                <div class="camera-container" style="position: relative;">
+                    <!-- Webcam Canvas -->
+                    <div id="webcam-container"></div>
+                    <canvas id="overlay" style="position: absolute; top:0; left:0; width:100%; height:100%;"></canvas>
+                </div>
+                <div class="controls">
+                    <button onclick="initAI()" class="btn btn-primary">เริ่มการทำงาน</button>
+                    <button onclick="window.location.reload()" class="btn btn-outline">หยุด/รีเซ็ต</button>
+                </div>
+            </section>
+
+            <section class="main-card" style="margin-top: 15px;">
+                <h3>ลงทะเบียนใบหน้าใหม่</h3>
+                <div style="display: flex; gap: 10px; margin-top: 10px;">
+                    <input type="text" id="reg-name" placeholder="ชื่อนักเรียน" style="flex:1; padding:10px; border-radius:8px; border:1px solid #ddd;">
+                    <button onclick="registerFace()" class="btn btn-primary" style="padding:10px 20px;">บันทึก</button>
+                </div>
+            </section>
+
+            <section class="stats-grid">
+                <div class="stat-card">
+                    <span class="label">ผู้ที่กำลังตรวจจับ</span>
+                    <span id="subject-name" class="value">Scanning...</span>
+                </div>
+                <div class="stat-card alert">
+                    <span class="label">สถานะหมวกนิรภัย</span>
+                    <span id="helmet-status" class="value">-</span>
+                </div>
+            </section>
         </div>
 
-        <div class="side-panel">
-            <div class="card">
-                <h3>SUBJECT IDENTIFICATION</h3>
-                <div id="user-id">WAITING...</div>
-                <div id="label-container"></div>
-            </div>
+        <!-- หน้า DASHBOARD -->
+        <div id="page-dashboard" style="display:none">
+            <section class="main-card">
+                <h2>Realtime Dashboard</h2>
+                <div class="dashboard-grid">
+                    <div class="dash-card">
+                        <h3>ไม่สวมหมวกวันนี้</h3>
+                        <p id="nohelmet-count">0</p>
+                    </div>
+                    <div class="dash-card">
+                        <h3>อัปเดตล่าสุด</h3>
+                        <p id="last-update">-</p>
+                    </div>
+                </div>
+            </section>
+        </div>
 
-            <div class="card">
-                <h3>ENROLLMENT</h3>
-                <input type="text" id="reg-name" placeholder="ENTER SUBJECT NAME">
-                <button onclick="registerFace()">ENROLL</button>
+        <!-- หน้า คู่มือ -->
+        <div id="page-guide" style="display: none;">
+            <h2 class="section-title">คู่มือการใช้งาน</h2>
+            <div class="video-grid">
+                <div class="video-card">
+                    <div class="video-wrapper">
+                        <iframe src="https://www.youtube.com/embed/5l6PGH7gNig" frameborder="0" allowfullscreen></iframe>
+                    </div>
+                    <div class="video-info">
+                        <h3>กฎจราจรเบื้องต้น</h3>
+                        <p>การขับขี่รถจักรยานยนต์อย่างปลอดภัย</p>
+                    </div>
+                </div>
             </div>
         </div>
-    </div>
+    </main>
 
     <script>
-        // เปลี่ยนเป็น URL โมเดลของคุณ
-        const URL = "https://teachablemachine.withgoogle.com/models/M8Wb2awFk/"; 
+        // --- NAVIGATION LOGIC ---
+        function showPage(pageId) {
+            ['live', 'guide', 'dashboard'].forEach(p => {
+                document.getElementById('page-' + p).style.display = (p === pageId) ? 'block' : 'none';
+                document.getElementById('nav-' + p).classList.toggle('active', p === pageId);
+            });
+            if(pageId === 'dashboard') updateDashboard();
+        }
 
+        // --- AI LOGIC ---
+        const TM_URL = "https://teachablemachine.withgoogle.com/models/M8Wb2awFk/"; // ใส่ ID ของคุณ
         let model, faceNet, webcam, currentStatus = "No_Helmet", isLocked = false;
 
-        async function init() {
-            model = await tmImage.load(URL + "model.json", URL + "metadata.json");
+        async function initAI() {
+            document.getElementById('live-badge').style.animation = "blink 1.5s infinite";
+            model = await tmImage.load(TM_URL + "model.json", TM_URL + "metadata.json");
             faceNet = await blazeface.load();
             
-            const size = 500;
-            webcam = new tmImage.Webcam(size, size, true);
+            webcam = new tmImage.Webcam(640, 480, true);
             await webcam.setup();
             await webcam.play();
             
             document.getElementById("webcam-container").appendChild(webcam.canvas);
             const canvas = document.getElementById("overlay");
-            canvas.width = size; canvas.height = size;
-
+            canvas.width = 640; canvas.height = 480;
+            
             window.requestAnimationFrame(loop);
         }
 
         async function loop() {
             webcam.update();
             await predict();
-            await draw();
+            await drawOverlay();
             window.requestAnimationFrame(loop);
         }
 
         async function predict() {
             const pred = await model.predict(webcam.canvas);
             let topProb = 0;
-            for (let i = 0; i < pred.length; i++) {
-                if(pred[i].probability > topProb) {
-                    topProb = pred[i].probability;
-                    currentStatus = pred[i].className;
+            pred.forEach(p => {
+                if(p.probability > topProb) {
+                    topProb = p.probability;
+                    currentStatus = p.className;
                 }
-            }
+            });
+
+            document.getElementById('helmet-status').innerText = currentStatus;
+            document.getElementById('helmet-status').style.color = (currentStatus === "Helmet_OK") ? "#2563eb" : "#ef4444";
 
             if (topProb > 0.95 && !isLocked) {
                 isLocked = true;
@@ -78,42 +153,47 @@
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({image: img, status: currentStatus})
                 }).then(r => r.json()).then(d => {
-                    document.getElementById("user-id").innerHTML = "ID: " + d.name;
-                    setTimeout(() => isLocked = false, 5000); // เว้นช่วง 5 วิ
+                    document.getElementById("subject-name").innerText = d.name;
+                    setTimeout(() => isLocked = false, 5000);
                 });
             }
         }
 
-        async function draw() {
-            const canvas = document.getElementById("overlay");
-            const ctx = canvas.getContext("2d");
-            ctx.clearRect(0, 0, 500, 500);
+        async function drawOverlay() {
+            const ctx = document.getElementById("overlay").getContext("2d");
+            ctx.clearRect(0, 0, 640, 480);
             const faces = await faceNet.estimateFaces(webcam.canvas, false);
             if (faces.length > 0) {
                 const face = faces[0];
-                const color = currentStatus === "Helmet_OK" ? "#00f2ff" : "#ff3e3e";
-                ctx.strokeStyle = color; ctx.lineWidth = 4;
+                ctx.strokeStyle = (currentStatus === "Helmet_OK") ? "#2563eb" : "#ef4444";
+                ctx.lineWidth = 5;
                 const size = [face.bottomRight[0]-face.topLeft[0], face.bottomRight[1]-face.topLeft[1]];
                 ctx.strokeRect(face.topLeft[0], face.topLeft[1], size[0], size[1]);
-                ctx.fillStyle = color;
-                ctx.font = "bold 16px monospace";
-                ctx.fillText(currentStatus, face.topLeft[0], face.topLeft[1]-10);
             }
         }
 
         async function registerFace() {
             const name = document.getElementById("reg-name").value;
-            if(!name) return alert("Please enter name");
+            if(!name) return alert("กรุณาใส่ชื่อ");
             const img = webcam.canvas.toDataURL('image/jpeg', 0.8);
             await fetch('/register', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({name: name, image: img})
             });
-            alert("Subject Enrolled!");
+            alert("ลงทะเบียนเรียบร้อย!");
             document.getElementById("reg-name").value = "";
         }
-        init();
+
+        async function updateDashboard() {
+            const res = await fetch('/get_stats');
+            const data = await res.json();
+            document.getElementById('nohelmet-count').innerText = data.no_helmet_count;
+            document.getElementById('last-update').innerText = data.last_update;
+        }
+
+        // ตั้งค่าวันที่ปัจจุบัน
+        document.getElementById('date').innerText = new Date().toLocaleDateString('th-TH');
     </script>
 </body>
 </html>

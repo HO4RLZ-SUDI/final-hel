@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>CyberGuard PRO</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@latest/dist/teachablemachine-image.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/blazeface"></script>
+</head>
+<body>
+    <div class="hud-header">>> MONITORING_ACTIVE // ACCESS_CONTROL</div>
+    
+    <div style="position: relative; display: inline-block;">
+        <div id="webcam-container"></div>
+        <canvas id="overlay" style="position: absolute; top: 0; left: 0;"></canvas>
+    </div>
+
+    <div class="ui-panel">
+        <div class="card">
+            <h3 style="color:#00f2ff">BIOMETRIC ENROLLMENT</h3>
+            <input type="text" id="reg-name" placeholder="ENTER SUBJECT NAME">
+            <button onclick="registerFace()">ENROLL SUBJECT</button>
+        </div>
+        
+        <div class="card">
+            <div id="user-id">SUBJECT: SCANNING...</div>
+            <div id="label-container" style="font-size:0.8rem; opacity:0.6"></div>
+        </div>
+    </div>
+
+    <script>
+        const TM_URL = "https://teachablemachine.withgoogle.com/models/M8Wb2awFk/";
+        let model, faceNet, webcam, labelContainer, currentStatus = "No_Helmet", isLocked = false;
+
+        async function init() {
+            model = await tmImage.load(TM_URL + "model.json", TM_URL + "metadata.json");
+            faceNet = await blazeface.load();
+            webcam = new tmImage.Webcam(500, 500, true);
+            await webcam.setup();
+            await webcam.play();
+            
+            document.getElementById("webcam-container").appendChild(webcam.canvas);
+            const canvas = document.getElementById("overlay");
+            canvas.width = 500; canvas.height = 500;
+            labelContainer = document.getElementById("label-container");
+            for (let i = 0; i < model.getTotalClasses(); i++) labelContainer.appendChild(document.createElement("div"));
+            
+            window.requestAnimationFrame(loop);
+        }
+
+        async function loop() {
+            webcam.update();
+            await predict();
+            await draw();
+            window.requestAnimationFrame(loop);
+        }
+
+        async function predict() {
+            const pred = await model.predict(webcam.canvas);
+            let topProb = 0;
+            for (let i = 0; i < pred.length; i++) {
+                if(pred[i].probability > topProb) {
+                    topProb = pred[i].probability;
+                    currentStatus = pred[i].className;
+                }
+                labelContainer.childNodes[i].innerHTML = `${pred[i].className}: ${(pred[i].probability * 100).toFixed(0)}%`;
+            }
+
+            if (topProb > 0.95 && !isLocked) {
+                isLocked = true;
+                const img = webcam.canvas.toDataURL('image/jpeg', 0.4);
+                fetch('/verify_event', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({image: img, status: currentStatus})
+                }).then(r => r.json()).then(d => {
+                    document.getElementById("user-id").innerHTML = "SUBJECT: " + d.name;
+                    setTimeout(() => isLocked = false, 3000);
+                });
+            }
+        }
+
+        async function draw() {
+            const ctx = document.getElementById("overlay").getContext("2d");
+            ctx.clearRect(0, 0, 500, 500);
+            const faces = await faceNet.estimateFaces(webcam.canvas, false);
+            if (faces.length > 0) {
+                const face = faces[0];
+                const color = currentStatus === "Helmet_OK" ? "#00f2ff" : "#ff3e3e";
+                ctx.strokeStyle = color;
+                ctx.lineWidth = 4;
+                const size = [face.bottomRight[0]-face.topLeft[0], face.bottomRight[1]-face.topLeft[1]];
+                ctx.strokeRect(face.topLeft[0], face.topLeft[1], size[0], size[1]);
+                ctx.fillStyle = color;
+                ctx.fillText(currentStatus, face.topLeft[0], face.topLeft[1]-10);
+            }
+        }
+
+        async function registerFace() {
+            const name = document.getElementById("reg-name").value;
+            if(!name) return alert("Please enter name");
+            const img = webcam.canvas.toDataURL('image/jpeg', 0.8);
+            await fetch('/register', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({name: name, image: img})
+            });
+            alert("Subject Registered & Email Sent to Teacher");
+            document.getElementById("reg-name").value = "";
+        }
+
+        init();
+    </script>
+</body>
+</html>
